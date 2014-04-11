@@ -1682,12 +1682,20 @@ static int depmod_load(struct depmod *depmod)
 	return 0;
 }
 
-static size_t mod_count_all_dependencies(const struct mod *mod)
+static size_t mod_count_all_dependencies(const struct mod *mod, size_t upper_bound)
 {
 	size_t i, count = 0;
+	/* cycle is detected */
+	if (mod->dep_loop)
+		return upper_bound;
+
 	for (i = 0; i < mod->deps.count; i++) {
 		const struct mod *d = mod->deps.array[i];
-		count += 1 + mod_count_all_dependencies(d);
+		const size_t child = mod_count_all_dependencies(d, upper_bound);
+		if(child == upper_bound)
+			return child;
+
+		count += 1 + child;
 	}
 	return count;
 }
@@ -1722,12 +1730,12 @@ static int mod_fill_all_unique_dependencies(const struct mod *mod, const struct 
 	return err;
 }
 
-static const struct mod **mod_get_all_sorted_dependencies(const struct mod *mod, size_t *n_deps)
+static const struct mod **mod_get_all_sorted_dependencies(const struct mod *mod, size_t *n_deps, size_t count)
 {
 	const struct mod **deps;
 	size_t last = 0;
 
-	*n_deps = mod_count_all_dependencies(mod);
+	*n_deps = mod_count_all_dependencies(mod, count);
 	if (*n_deps == 0)
 		return NULL;
 
@@ -1771,7 +1779,7 @@ static int output_deps(struct depmod *depmod, FILE *out)
 		if (mod->deps.count == 0)
 			goto end;
 
-		deps = mod_get_all_sorted_dependencies(mod, &n_deps);
+		deps = mod_get_all_sorted_dependencies(mod, &n_deps, depmod->modules.count);
 		if (deps == NULL) {
 			ERR("could not get all sorted dependencies of %s\n", p);
 			goto end;
@@ -1819,7 +1827,7 @@ static int output_deps_bin(struct depmod *depmod, FILE *out)
 			continue;
 		}
 
-		deps = mod_get_all_sorted_dependencies(mod, &n_deps);
+		deps = mod_get_all_sorted_dependencies(mod, &n_deps, depmod->modules.count);
 		if (deps == NULL && n_deps > 0) {
 			ERR("could not get all sorted dependencies of %s\n", p);
 			continue;
